@@ -67,9 +67,6 @@ pub enum ExprNode {
 
     Ident(String),
 
-    /// Grouping by parens '(' and ')'
-    Group(Box<ExprNode>),
-
     /// Index ex. "vec[idx - 1]"
     Index {
         container: Box<ExprNode>,
@@ -152,10 +149,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         let token = self.advance().expect("Unexpected end of tokens");
         
         let mut lhs = match token.kind {
-            Tk::OpenParen => {
-                let expr = self.delimited_expression(DelimiterKind::Parentheses);
-                ExprNode::Group(Box::new(expr))
-            },
+            Tk::OpenParen => self.delimited_expression(DelimiterKind::Parentheses),
             Tk::Minus => {
                 let expr = self.expression(OpBindingPower::Unary, );
                 ExprNode::Negate(Box::new(expr))
@@ -167,6 +161,8 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
 
         while let Some(token) = self.peek() {
             let node = match token.kind {
+                Tk::OpenBracket => self.index(lhs),
+
                 // Closing Delimiters, verify and return current parsed expression
                 Tk::CloseParen => self.verify_closing_delimiter(DelimiterKind::Parentheses, lhs),
                 Tk::CloseBracket => self.verify_closing_delimiter(DelimiterKind::Brackets, lhs),
@@ -216,6 +212,18 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
+    fn index(&mut self, container: ExprNode) -> ControlFlow<ExprNode, ExprNode>{
+        self.advance();
+
+        let index = self.delimited_expression(DelimiterKind::Brackets);
+        ControlFlow::Break(
+            ExprNode::Index {
+                container: Box::new(container),
+                index: Box::new(index)
+            }
+        )
+    }
+
     fn delimited_expression(&mut self, opening_delimeter: DelimiterKind) -> ExprNode {
         self.delimiters.push(opening_delimeter);
         self.expression(OpBindingPower::Grouping)
@@ -225,16 +233,13 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         self.advance();
 
         match self.delimiters.pop() {
-            Some(expected_delimiter) if closing_delimiter == expected_delimiter => {
-                ControlFlow::Break(lhs)
-            }
+            Some(expected_delimiter) if closing_delimiter == expected_delimiter => ControlFlow::Break(lhs),
 
             _ => {
                 panic!("Mismatched closing delimiter '{}'", closing_delimiter.get_closing_char());
             }
         }
     }
-
 }
 
 

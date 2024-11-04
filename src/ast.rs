@@ -8,16 +8,15 @@ use crate::lexer::{Token, TokenKind as Tk, LiteralKind};
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 enum OpBindingPower {
     All,
-    Grouping,
 
+    Grouping,
     Conditional,
+    Call,
+    Index,
+    Unary,
 
     Sum,
     Factor,
-
-    Unary,
-    Access,
-    Index,
     
     Literal,
 }
@@ -75,8 +74,8 @@ pub enum ExprNode {
 
     /// Access by '.' operator
     Access {
-        object: Box<ExprNode>,
-        name: Box<ExprNode>
+        container: Box<ExprNode>,
+        name: String
     },
 
     /// Unary '-'
@@ -91,8 +90,8 @@ pub enum ExprNode {
 
     Conditional {
         condition: Box<ExprNode>,
-        true_value: Box<ExprNode>,
-        flase_value: Box<ExprNode>,
+        true_expression: Box<ExprNode>,
+        false_expression: Box<ExprNode>,
     }
 }
 
@@ -167,6 +166,12 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
                 Tk::CloseParen => self.verify_closing_delimiter(DelimiterKind::Parentheses, lhs),
                 Tk::CloseBracket => self.verify_closing_delimiter(DelimiterKind::Brackets, lhs),
 
+                Tk::Dot => self.access(lhs),
+
+                // Conditional Operator "c ? a : b"
+                Tk::Question => self.conditional(lhs),
+                Tk::Colon => self.verify_closing_delimiter(DelimiterKind::Conditional, lhs),
+
                 Tk::Plus => self.bin_op(BinOpKind::Add, lhs, left_power),
                 Tk::Minus => self.bin_op(BinOpKind::Subtract, lhs, left_power),
                 Tk::Star => self.bin_op(BinOpKind::Multiply, lhs, left_power),
@@ -200,6 +205,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
             return ControlFlow::Break(lhs);
         }
 
+        // Discard the op if we bind it to the expression
         self.advance();
         let rhs = self.expression(right_power);
         
@@ -212,7 +218,46 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
+    fn conditional(&mut self, condition: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+        // Discard '?'
+        self.advance();
+        self.delimiters.push(DelimiterKind::Conditional);
+
+        // '?' and ':' group similar to parenthesis
+        let true_expression = self.expression(OpBindingPower::Grouping);
+
+        // Expressions after the ':' are subject to standard bindng rules
+        let false_expression = self.expression(OpBindingPower::Conditional);
+        
+        ControlFlow::Continue(
+            ExprNode::Conditional {
+                condition: Box::new(condition),
+                true_expression: Box::new(true_expression),
+                false_expression: Box::new(false_expression)
+            }
+        )
+    }
+
+    fn access(&mut self, container: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+        // Discard '.'
+        self.advance();
+
+        let name = match self.advance().map(|tk| tk.kind) {
+            Some(Tk::Ident(name)) => name,
+            Some(t) => panic!("Expected an identifier, got {:?}", t),
+            None => panic!("Expected an identifier"),
+        };
+
+        ControlFlow::Break(
+            ExprNode::Access {
+                container: Box::new(container),
+                name: format!("{:?}", name),
+            }
+        )
+    }
+
     fn index(&mut self, container: ExprNode) -> ControlFlow<ExprNode, ExprNode>{
+        // Discard '['
         self.advance();
 
         let index = self.delimited_expression(DelimiterKind::Brackets);
@@ -230,6 +275,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
     }
 
     fn verify_closing_delimiter(&mut self, closing_delimiter: DelimiterKind, lhs: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+        // Discard closing delimiter
         self.advance();
 
         match self.delimiters.pop() {

@@ -28,6 +28,12 @@ pub enum TokenKind {
 
     /// '.'
     Dot,
+
+    /// '?'
+    Question,
+
+    /// '.'
+    Colon,
     
     /// '+'
     Plus,
@@ -103,6 +109,8 @@ impl<'a> Lexer<'a> {
             },
 
             '.' => Tk::Dot,
+            '?' => Tk::Question,
+            ':' => Tk::Colon,
             
             '+' => Tk::Plus,
             '-' => Tk::Minus,

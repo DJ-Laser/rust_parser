@@ -99,8 +99,32 @@ pub enum ExprNode {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum DelimiterKind {
-    Bracket
+    Parentheses,
+    Brackets,
+    Braces,
+    Conditional,
+}
+
+impl DelimiterKind {
+    fn get_opening_char(&self) -> char {
+        match self {
+            Self::Parentheses => '(',
+            Self::Brackets => '[',
+            Self::Braces => '{',
+            Self::Conditional => '?'
+        }
+    }
+
+    fn get_closing_char(&self) -> char {
+        match self {
+            Self::Parentheses => ')',
+            Self::Brackets => ']',
+            Self::Braces => '}',
+            Self::Conditional => ':'
+        }
+    }
 }
 
 struct AstParser<T: Iterator<Item = Token>> {
@@ -125,11 +149,11 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
     }
     
     fn expression(&mut self, left_power: OpBindingPower) -> ExprNode {
-        let token = self.advance().expect("Unexpected EOF");
+        let token = self.advance().expect("Unexpected end of tokens");
         
         let mut lhs = match token.kind {
             Tk::OpenParen => {
-                let expr = self.expression(OpBindingPower::Grouping);
+                let expr = self.delimited_expression(DelimiterKind::Parentheses);
                 ExprNode::Group(Box::new(expr))
             },
             Tk::Minus => {
@@ -138,18 +162,20 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
             },
             Tk::Ident(name) => ExprNode::Ident(name),
             Tk::Literal(kind) => self.literal(kind),
-            _ => todo!(),
+            t => todo!("Unexpected prefix: {:?}", t),
         };
 
         while let Some(token) = self.peek() {
             let node = match token.kind {
-                Tk::CloseParen => return lhs,
-                
+                // Closing Delimiters, verify and return current parsed expression
+                Tk::CloseParen => self.verify_closing_delimiter(DelimiterKind::Parentheses, lhs),
+                Tk::CloseBracket => self.verify_closing_delimiter(DelimiterKind::Brackets, lhs),
+
                 Tk::Plus => self.bin_op(BinOpKind::Add, lhs, left_power),
                 Tk::Minus => self.bin_op(BinOpKind::Subtract, lhs, left_power),
                 Tk::Star => self.bin_op(BinOpKind::Multiply, lhs, left_power),
                 Tk::Slash => self.bin_op(BinOpKind::Divide, lhs, left_power),
-                _ => todo!(),
+                t => todo!("Unexpected op: {:?}", t),
             };
 
             lhs = match node {
@@ -189,6 +215,26 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
             }
         )
     }
+
+    fn delimited_expression(&mut self, opening_delimeter: DelimiterKind) -> ExprNode {
+        self.delimiters.push(opening_delimeter);
+        self.expression(OpBindingPower::Grouping)
+    }
+
+    fn verify_closing_delimiter(&mut self, closing_delimiter: DelimiterKind, lhs: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+        self.advance();
+
+        match self.delimiters.pop() {
+            Some(expected_delimiter) if closing_delimiter == expected_delimiter => {
+                ControlFlow::Break(lhs)
+            }
+
+            _ => {
+                panic!("Mismatched closing delimiter '{}'", closing_delimiter.get_closing_char());
+            }
+        }
+    }
+
 }
 
 

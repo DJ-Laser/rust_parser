@@ -1,4 +1,5 @@
 use std::str::Chars;
+use std::fmt::{Display, Formatter};
 
 use self::TokenKind as Tk;
 
@@ -6,8 +7,46 @@ use self::TokenKind as Tk;
 pub enum LiteralKind {
     Int(i64),
     Float(f64),
-    Bool(bool),
     String(String),
+}
+
+impl Display for LiteralKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Int(num) => write!(f, "{}", num),
+            Self::Float(num) => write!(f, "{}", num),
+            Self::String(string) => write!(f, "{:?}", string),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Keyword {
+    Else,
+    False,
+    Fn,
+    For,
+    If,
+    Let,
+    Return,
+    True,
+    While,
+}
+
+impl Display for Keyword {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Else => write!(f, "else"),
+            Self::False => write!(f, "false"),
+            Self::Fn => write!(f, "fn"),
+            Self::For => write!(f, "for"),
+            Self::If => write!(f, "if"),
+            Self::Let => write!(f, "let"),
+            Self::Return => write!(f, "return"),
+            Self::True => write!(f, "true"),
+            Self::While => write!(f, "while")
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -18,13 +57,8 @@ pub enum TokenKind {
     /// A variable or name
     Ident(String),
 
-    Else,
-    Fn,
-    For,
-    If,
-    Let,
-    Return,
-    While,
+    // A language keyword
+    Keyword(Keyword),
 
     /// '.'
     Dot,
@@ -56,6 +90,28 @@ pub enum TokenKind {
     OpenBracket,
     /// ']'
     CloseBracket,
+}
+
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(kind) => write!(f, "{}", kind),
+            Self::Keyword(keyword) => write!(f, "{}", keyword),
+            Self::Ident(name) => write!(f, "{}", name),
+            Self::Dot => write!(f, "."),
+            Self::Comma => write!(f, ","),
+            Self::Question => write!(f, "?"),
+            Self::Colon => write!(f, ":"),
+            Self::Plus => write!(f, "+"),
+            Self::Minus => write!(f, "-"),
+            Self::Star => write!(f, "*"),
+            Self::Slash => write!(f, "/"),
+            Self::OpenParen => write!(f, "("),
+            Self::CloseParen => write!(f, ")"),
+            Self::OpenBracket => write!(f, "["),
+            Self::CloseBracket => write!(f, "]"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -211,11 +267,11 @@ impl<'a> Lexer<'a> {
                     ident.push(c);
                     match c {
                         'a' if self.match_keyword_suffix("lse", &mut ident)
-                            => return Tk::Literal(LiteralKind::Bool(false)),
+                            => return Tk::Keyword(Keyword::False),
                         'n' if self.match_keyword_suffix("", &mut ident)
-                            => return Tk::Fn,
+                            => return Tk::Keyword(Keyword::Fn),
                         'o' if self.match_keyword_suffix("r", &mut ident)
-                            => return Tk::For,
+                            => return Tk::Keyword(Keyword::For),
                         
                         _ => (),
                     };
@@ -223,17 +279,17 @@ impl<'a> Lexer<'a> {
             }
             
             'e' if self.match_keyword_suffix("lse", &mut ident)
-                => return Tk::Else,
+                => return Tk::Keyword(Keyword::Else),
             'i' if self.match_keyword_suffix("f", &mut ident)
-                => return Tk::If,
+                => return Tk::Keyword(Keyword::If),
             'l' if self.match_keyword_suffix("et", &mut ident)
-                => return Tk::Let,
+                => return Tk::Keyword(Keyword::Let),
             'r' if self.match_keyword_suffix("eturn", &mut ident)
-                => return Tk::Return,
+                => return Tk::Keyword(Keyword::Return),
             't' if self.match_keyword_suffix("rue", &mut ident)
-                => return Tk::Literal(LiteralKind::Bool(true)),
+                => return Tk::Keyword(Keyword::True),
             'w' if self.match_keyword_suffix("hile", &mut ident)
-                => return Tk::While,
+                => return Tk::Keyword(Keyword::While),
             
             _ => (),
         };

@@ -57,6 +57,34 @@ impl BinOpKind {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum DelimiterKind {
+    Parentheses,
+    Brackets,
+    Braces,
+    Conditional,
+}
+
+impl DelimiterKind {
+    fn get_opening_token(&self) -> Tk {
+        match self {
+            Self::Parentheses => Tk::OpenParen,
+            Self::Brackets => Tk::OpenBracket,
+            Self::Braces => todo!(),
+            Self::Conditional => Tk::Question
+        }
+    }
+    
+    fn get_closing_token(&self) -> Tk {
+        match self {
+            Self::Parentheses => Tk::CloseParen,
+            Self::Brackets => Tk::CloseBracket,
+            Self::Braces => todo!(),
+            Self::Conditional => Tk::Colon
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ExprNode {
     Int(i64),
@@ -101,33 +129,6 @@ pub enum ExprNode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum DelimiterKind {
-    Parentheses,
-    Brackets,
-    Braces,
-    Conditional,
-}
-
-impl DelimiterKind {
-    fn get_opening_token(&self) -> Tk {
-        match self {
-            Self::Parentheses => Tk::OpenParen,
-            Self::Brackets => Tk::OpenBracket,
-            Self::Braces => todo!(),
-            Self::Conditional => Tk::Question
-        }
-    }
-
-    fn get_closing_token(&self) -> Tk {
-        match self {
-            Self::Parentheses => Tk::CloseParen,
-            Self::Brackets => Tk::CloseBracket,
-            Self::Braces => todo!(),
-            Self::Conditional => Tk::Colon
-        }
-    }
-}
 
 struct AstParser<T: Iterator<Item = Token>> {
     tokens: T,

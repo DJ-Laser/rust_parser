@@ -92,6 +92,7 @@ pub enum ExprNode {
     Bool(bool),
     String(String),
     Array(Vec<ExprNode>),
+    Tuple(Vec<ExprNode>),
 
     Ident(String),
 
@@ -164,11 +165,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         let token = self.advance().expect("Unexpected end of tokens");
         
         let mut lhs = match token.kind {
-            Tk::OpenParen => {
-                let expr = self.delimited_expression(DelimiterKind::Parentheses);
-                self.expect(Tk::CloseParen);
-                expr
-            },
+            Tk::OpenParen => self.group_or_tuple(),
             Tk::OpenBracket => self.array_literal(),
             Tk::Minus => {
                 let expr = self.expression(OpBindingPower::Unary, );
@@ -246,6 +243,15 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
     fn array_literal(&mut self) -> ExprNode {
         let elements = self.comma_seperated_exprs(DelimiterKind::Brackets);
         ExprNode::Array(elements)
+    }
+
+    fn group_or_tuple(&mut self) -> ExprNode {
+        let mut elements = self.comma_seperated_exprs(DelimiterKind::Parentheses);
+
+        match elements.len() {
+            1 => elements.pop().unwrap(),
+            _ => ExprNode::Tuple(elements)
+        }
     }
 
     fn bin_op(&mut self, op_kind: BinOpKind, lhs: ExprNode,

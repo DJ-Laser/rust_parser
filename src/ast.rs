@@ -298,7 +298,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
             None => panic!("Expected an identifier"),
         };
 
-        ControlFlow::Break(
+        ControlFlow::Continue(
             ExprNode::Access {
                 container: Box::new(container),
                 name: format!("{:?}", name),

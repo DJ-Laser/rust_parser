@@ -67,6 +67,11 @@ pub enum ExprNode {
 
     Ident(String),
 
+    Call {
+        function: Box<ExprNode>,
+        arguments: Vec<ExprNode>,
+    },
+
     /// Index ex. "vec[idx - 1]"
     Index {
         container: Box<ExprNode>,
@@ -175,6 +180,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
 
         while let Some(token) = self.peek() {
             let node = match token.kind {
+                Tk::OpenParen => self.call(lhs),
                 Tk::OpenBracket => self.index(lhs),
 
                 // Closing Delimiters, verify and return current parsed expression
@@ -213,28 +219,31 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         }
     }
 
-    fn array_literal(&mut self) -> ExprNode {
-        self.delimiters.push(DelimiterKind::Brackets);
-
+    fn comma_seperated_exprs(&mut self, closing_token: Tk) -> Vec<ExprNode> {
+        let mut expressions = Vec::new();
         let prev_allow_comma = self.allow_comma;
         self.allow_comma = true;
-
-        let mut elements = Vec::new();
 
         loop {
             match self.peek().map(|tk| tk.kind) {
                 Some(Tk::Comma) => { self.advance(); },
-                Some(Tk::CloseBracket) => {
+                Some(tk) if tk == closing_token => {
                     self.advance();
                     break;
                 },
-                _ => elements.push(
+                _ => expressions.push(
                     self.expression(OpBindingPower::Grouping)
                 ),
             };
         };
 
         self.allow_comma = prev_allow_comma;
+        expressions
+    }
+
+    fn array_literal(&mut self) -> ExprNode {
+        self.delimiters.push(DelimiterKind::Brackets);
+        let elements = self.comma_seperated_exprs(Tk::CloseBracket);
         ExprNode::Array(elements)
     }
 
@@ -307,6 +316,18 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
             ExprNode::Index {
                 container: Box::new(container),
                 index: Box::new(index)
+            }
+        )
+    }
+
+    fn call(&mut self, function: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+        self.expect(Tk::OpenParen);
+        self.delimiters.push(DelimiterKind::Parentheses);
+        let arguments = self.comma_seperated_exprs(Tk::CloseParen);
+        ControlFlow::Continue(
+            ExprNode::Call {
+                function: Box::new(function),
+                arguments
             }
         )
     }

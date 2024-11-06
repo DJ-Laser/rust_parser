@@ -2,7 +2,7 @@ use std::str::Chars;
 
 use self::TokenKind as Tk;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum LiteralKind {
     Int(i64),
     Float(f64),
@@ -10,7 +10,7 @@ pub enum LiteralKind {
     String(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum TokenKind {
     /// A number or string
     Literal(LiteralKind),
@@ -28,6 +28,9 @@ pub enum TokenKind {
 
     /// '.'
     Dot,
+
+    /// ','
+    Comma,
 
     /// '?'
     Question,
@@ -109,6 +112,8 @@ impl<'a> Lexer<'a> {
             },
 
             '.' => Tk::Dot,
+            ',' => Tk::Comma,
+
             '?' => Tk::Question,
             ':' => Tk::Colon,
             
@@ -131,7 +136,6 @@ impl<'a> Lexer<'a> {
         while self.peek().map_or(false, char::is_whitespace) {
             // Advance to skip whitespace
             if matches!(self.advance(), Some('\n')) {
-                // 
                 self.line += 1;
             }
         }

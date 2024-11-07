@@ -9,7 +9,9 @@ use lexer::Lexer;
 pub fn main() {
     for line in stdin().lock().lines() {
         let line = line.unwrap();
-        let ast = ast::parse(Lexer::new(&line));
+
+        let lexer = Lexer::new(&line);
+        let ast = ast::parse(lexer);
         println!("{:?}", ast);
     }
 }

@@ -86,58 +86,58 @@ impl DelimiterKind {
 }
 
 #[derive(Debug)]
-pub enum ExprNode {
+pub enum ExprNode<'i> {
     Int(i64),
     Float(f64),
     Bool(bool),
-    String(String),
-    Array(Vec<ExprNode>),
-    Tuple(Vec<ExprNode>),
+    String(&'i str),
+    Array(Vec<ExprNode<'i>>),
+    Tuple(Vec<ExprNode<'i>>),
 
     Ident(String),
 
     Call {
-        function: Box<ExprNode>,
-        arguments: Vec<ExprNode>,
+        function: Box<ExprNode<'i>>,
+        arguments: Vec<ExprNode<'i>>,
     },
 
     /// Index ex. "vec[idx - 1]"
     Index {
-        container: Box<ExprNode>,
-        index: Box<ExprNode>
+        container: Box<ExprNode<'i>>,
+        index: Box<ExprNode<'i>>
     },
 
     /// Access by '.' operator
     Access {
-        container: Box<ExprNode>,
+        container: Box<ExprNode<'i>>,
         name: String
     },
 
     /// Unary '-'
-    Negate (Box<ExprNode>),
+    Negate (Box<ExprNode<'i>>),
 
     /// Binary operators ex. '+', '-', '*', '/'
     BinOp {
         kind: BinOpKind,
-        left: Box<ExprNode>,
-        right: Box<ExprNode>
+        left: Box<ExprNode<'i>>,
+        right: Box<ExprNode<'i>>
     },
 
     Conditional {
-        condition: Box<ExprNode>,
-        true_expression: Box<ExprNode>,
-        false_expression: Box<ExprNode>,
+        condition: Box<ExprNode<'i>>,
+        true_expression: Box<ExprNode<'i>>,
+        false_expression: Box<ExprNode<'i>>,
     }
 }
 
 
-struct AstParser<T: Iterator<Item = Token>> {
+struct AstParser<'i, T: Iterator<Item = Token<'i>>> {
     tokens: T,
     delimiters: Vec<DelimiterKind>,
     allow_comma: bool
 }
 
-impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
+impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
     fn new(tokens: T) -> Self {
         Self {
             tokens,
@@ -146,7 +146,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         }
     }
     
-    fn advance(&mut self) -> Option<Token> {
+    fn advance(&mut self) -> Option<Token<'i>> {
         self.tokens.next()
     }
 
@@ -157,13 +157,13 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         }
     }
 
-    fn peek(&mut self) -> Option<Token> {
+    fn peek(&mut self) -> Option<Token<'i>> {
         self.tokens.clone().next()
     }
     
-    fn expression(&mut self, left_power: OpBindingPower) -> ExprNode {
+    fn expression(&mut self, left_power: OpBindingPower) -> ExprNode<'i> {
         let token = self.advance().expect("Unexpected end of tokens");
-        
+
         let mut lhs = match token.kind {
             Tk::OpenParen => self.group_or_tuple(),
             Tk::OpenBracket => self.array_literal(),
@@ -208,7 +208,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         lhs
     }
 
-    fn literal(&self, kind: LiteralKind) -> ExprNode {
+    fn literal(&self, kind: LiteralKind<'i>) -> ExprNode<'i> {
         match kind {
             LiteralKind::Int(n) => ExprNode::Int(n),
             LiteralKind::Float(n) => ExprNode::Float(n),
@@ -216,7 +216,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         }
     }
 
-    fn comma_seperated_exprs(&mut self, closing_delimiter: DelimiterKind) -> Vec<ExprNode> {
+    fn comma_seperated_exprs(&mut self, closing_delimiter: DelimiterKind) -> Vec<ExprNode<'i>> {
         self.delimiters.push(closing_delimiter);
         let mut expressions = Vec::new();
         let prev_allow_comma = self.allow_comma;
@@ -240,12 +240,12 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         expressions
     }
 
-    fn array_literal(&mut self) -> ExprNode {
+    fn array_literal(&mut self) -> ExprNode<'i> {
         let elements = self.comma_seperated_exprs(DelimiterKind::Brackets);
         ExprNode::Array(elements)
     }
 
-    fn group_or_tuple(&mut self) -> ExprNode {
+    fn group_or_tuple(&mut self) -> ExprNode<'i> {
         let mut elements = self.comma_seperated_exprs(DelimiterKind::Parentheses);
 
         match elements.len() {
@@ -254,8 +254,8 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         }
     }
 
-    fn bin_op(&mut self, op_kind: BinOpKind, lhs: ExprNode,
-        left_power: OpBindingPower) -> ControlFlow<ExprNode, ExprNode> {
+    fn bin_op(&mut self, op_kind: BinOpKind, lhs: ExprNode<'i>,
+        left_power: OpBindingPower) -> ControlFlow<ExprNode<'i>, ExprNode<'i>> {
         let right_power = op_kind.get_binding_power();
 
         if !left_power.can_bind_right(&right_power) {
@@ -275,7 +275,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
-    fn conditional(&mut self, condition: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+    fn conditional(&mut self, condition: ExprNode<'i>) -> ControlFlow<ExprNode<'i>, ExprNode<'i>> {
         self.expect(Tk::Question);
         self.delimiters.push(DelimiterKind::Conditional);
 
@@ -297,7 +297,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
-    fn access(&mut self, container: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+    fn access(&mut self, container: ExprNode<'i>) -> ControlFlow<ExprNode<'i>, ExprNode<'i>> {
         self.expect(Tk::Dot);
 
         let name = match self.advance().map(|tk| tk.kind) {
@@ -314,7 +314,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
-    fn index(&mut self, container: ExprNode) -> ControlFlow<ExprNode, ExprNode>{
+    fn index(&mut self, container: ExprNode<'i>) -> ControlFlow<ExprNode<'i>, ExprNode<'i>>{
         self.expect(Tk::OpenBracket);
         let index = self.delimited_expression(DelimiterKind::Brackets);
 
@@ -328,7 +328,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
-    fn call(&mut self, function: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+    fn call(&mut self, function: ExprNode<'i>) -> ControlFlow<ExprNode<'i>, ExprNode<'i>> {
         self.expect(Tk::OpenParen);
         let arguments = self.comma_seperated_exprs(DelimiterKind::Parentheses);
         ControlFlow::Continue(
@@ -339,7 +339,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         )
     }
 
-    fn delimited_expression(&mut self, opening_delimeter: DelimiterKind) -> ExprNode {
+    fn delimited_expression(&mut self, opening_delimeter: DelimiterKind) -> ExprNode<'i> {
         self.delimiters.push(opening_delimeter);
         let expr = self.expression(OpBindingPower::Grouping);
         self.expect_delimiter(opening_delimeter);
@@ -359,7 +359,7 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
         };
     }
 
-    fn verify_closing_delimiter(&mut self, closing_delimiter: DelimiterKind, lhs: ExprNode) -> ControlFlow<ExprNode, ExprNode> {
+    fn verify_closing_delimiter(&mut self, closing_delimiter: DelimiterKind, lhs: ExprNode<'i>) -> ControlFlow<ExprNode<'i>, ExprNode<'i>> {
         match self.delimiters.last() {
             Some(expected_delimiter) if closing_delimiter == *expected_delimiter => ControlFlow::Break(lhs),
 
@@ -371,8 +371,8 @@ impl<T: Iterator<Item = Token> + Clone> AstParser<T> {
 }
 
 
-pub fn parse<T>(tokens: T) -> ExprNode
-        where T: Iterator<Item = Token> + Clone {
+pub fn parse<'i, T>(tokens: T) -> ExprNode<'i>
+        where T: Iterator<Item = Token<'i>> + Clone {
     let mut parser = AstParser::new(tokens);
     parser.expression(OpBindingPower::All)
 }

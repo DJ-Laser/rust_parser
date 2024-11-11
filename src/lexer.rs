@@ -1,16 +1,18 @@
 use std::str::Chars;
 use std::fmt::{Display, Formatter};
 
+use crate::interner::Interner;
+
 use self::TokenKind as Tk;
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum LiteralKind {
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub enum LiteralKind<'i> {
     Int(i64),
     Float(f64),
-    String(String),
+    String(&'i str),
 }
 
-impl Display for LiteralKind {
+impl<'i> Display for LiteralKind<'i> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(num) => write!(f, "{}", num),
@@ -20,7 +22,7 @@ impl Display for LiteralKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Keyword {
     Else,
     False,
@@ -49,10 +51,10 @@ impl Display for Keyword {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum TokenKind {
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub enum TokenKind<'i> {
     /// A number or string
-    Literal(LiteralKind),
+    Literal(LiteralKind<'i>),
     
     /// A variable or name
     Ident(String),
@@ -92,7 +94,7 @@ pub enum TokenKind {
     CloseBracket,
 }
 
-impl Display for TokenKind {
+impl<'i> Display for TokenKind<'i> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Literal(kind) => write!(f, "{}", kind),
@@ -114,29 +116,29 @@ impl Display for TokenKind {
     }
 }
 
-#[derive(Debug)]
-pub struct Token {
-    pub kind: TokenKind,
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub struct Token<'i> {
+    pub kind: TokenKind<'i>,
     pub line: usize,
 }
 
-impl Token {
-    fn new(kind:TokenKind, line: usize) -> Self {
+impl<'i> Token<'i> {
+    fn new(kind: TokenKind<'i>, line: usize) -> Self {
         Self { kind, line }
     }
 }
 
-#[derive(Clone)]
-pub struct Lexer<'a> {
-    program: Chars<'a>,
+pub struct Lexer<'prgm, 'i, I: Interner<String>> {
+    program: Chars<'prgm>,
+    interner: &'i I,
     line: usize,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(program: &'a str) -> Self {
+impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
+    pub fn new(program: &'prgm str, interner: &'i mut I) -> Self {
         let program = program.chars();
         Self {
-            program, line: 1
+            program, interner, line: 1
         }
     }
     
@@ -152,7 +154,7 @@ impl<'a> Lexer<'a> {
         self.program.clone().nth(1)
     }
 
-    pub fn advance_token(&mut self) -> Option<Token> {
+    pub fn advance_token(&mut self) -> Option<Token<'i>> {
         self.whitespace();
         
         let token = match self.advance()? {
@@ -197,7 +199,7 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    fn number(&mut self, first_digit: char) -> TokenKind {     
+    fn number(&mut self, first_digit: char) -> TokenKind<'i> {     
         let mut digits = first_digit.to_string();
         
         self.int_digits(&mut digits);
@@ -231,14 +233,14 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    fn string(&mut self) -> TokenKind {
+    fn string(&mut self) -> TokenKind<'i> {
         let mut text = String::new();
         
         loop {
             match self.advance() {
                 Some('"') => break,
                 // if let guards aren't stabilized :(
-                Some('\\') if self.peek().is_some() => {
+                   Some('\\') if self.peek().is_some() => {
                     let c = self.advance().expect("checked is_some() on peek()");
                     text.push(c);
                 },
@@ -253,10 +255,11 @@ impl<'a> Lexer<'a> {
             }
         }
         
-        Tk::Literal(LiteralKind::String(text))
+        let interned = self.interner.intern(text);
+        Tk::Literal(LiteralKind::String(interned))
     }
 
-    fn ident_or_keyword(&mut self, first_char: char) -> TokenKind {
+    fn ident_or_keyword(&mut self, first_char: char) -> TokenKind<'i> {
         let mut ident = String::from(first_char);
 
         // Match all keywords
@@ -320,11 +323,21 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl Iterator for Lexer<'_> {
-    type Item = Token;
+impl<'prgm, 'i, I: Interner<String>> Iterator for Lexer<'prgm, 'i, I> {
+    type Item = Token<'i>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.advance_token()
+    }
+}
+
+impl<'prgm, 'i, I: Interner<String>> Clone for Lexer<'prgm, 'i, I> {
+    fn clone(&self) -> Self {
+        Self {
+            program: self.program.clone(),
+            interner: self.interner,
+            line: self.line
+        }
     }
 }
 

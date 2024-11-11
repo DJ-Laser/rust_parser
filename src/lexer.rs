@@ -1,15 +1,15 @@
-use std::str::Chars;
 use std::fmt::{Display, Formatter};
+use std::str::Chars;
 
 use crate::interner::Interner;
 
 use self::TokenKind as Tk;
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum LiteralKind<'i> {
     Int(i64),
     Float(f64),
-    String(&'i str),
+    String { string: &'i str, terminated: bool },
 }
 
 impl<'i> Display for LiteralKind<'i> {
@@ -17,12 +17,18 @@ impl<'i> Display for LiteralKind<'i> {
         match self {
             Self::Int(num) => write!(f, "{}", num),
             Self::Float(num) => write!(f, "{}", num),
-            Self::String(string) => write!(f, "{:?}", string),
+            Self::String { string, terminated } => {
+                if *terminated {
+                    write!(f, "{:?}", string)
+                } else {
+                    write!(f, "\"Unterminated String...")
+                }
+            }
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Keyword {
     Else,
     False,
@@ -46,16 +52,16 @@ impl Display for Keyword {
             Self::Let => write!(f, "let"),
             Self::Return => write!(f, "return"),
             Self::True => write!(f, "true"),
-            Self::While => write!(f, "while")
+            Self::While => write!(f, "while"),
         }
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind<'i> {
     /// A number or string
     Literal(LiteralKind<'i>),
-    
+
     /// A variable or name
     Ident(String),
 
@@ -73,7 +79,7 @@ pub enum TokenKind<'i> {
 
     /// '.'
     Colon,
-    
+
     /// '+'
     Plus,
     /// '-'
@@ -82,16 +88,20 @@ pub enum TokenKind<'i> {
     Star,
     /// '/'
     Slash,
-    
+
     /// '('
     OpenParen,
     /// ')'
     CloseParen,
-    
+
     /// '['
     OpenBracket,
     /// ']'
     CloseBracket,
+
+    UnexpectedChar(char),
+    // Lexer returns none, but Eof is useful for errors
+    Eof,
 }
 
 impl<'i> Display for TokenKind<'i> {
@@ -112,11 +122,13 @@ impl<'i> Display for TokenKind<'i> {
             Self::CloseParen => write!(f, ")"),
             Self::OpenBracket => write!(f, "["),
             Self::CloseBracket => write!(f, "]"),
+            Self::UnexpectedChar(c) => write!(f, "{}", c),
+            Self::Eof => write!(f, "<Eof>"),
         }
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Token<'i> {
     pub kind: TokenKind<'i>,
     pub line: usize,
@@ -125,6 +137,19 @@ pub struct Token<'i> {
 impl<'i> Token<'i> {
     fn new(kind: TokenKind<'i>, line: usize) -> Self {
         Self { kind, line }
+    }
+
+    pub fn eof() -> Self {
+        Self {
+            kind: TokenKind::Eof,
+            line: 0,
+        }
+    }
+}
+
+impl<'i> Display for Token<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.kind)
     }
 }
 
@@ -138,25 +163,27 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
     pub fn new(program: &'prgm str, interner: &'i mut I) -> Self {
         let program = program.chars();
         Self {
-            program, interner, line: 1
+            program,
+            interner,
+            line: 1,
         }
     }
-    
+
     fn advance(&mut self) -> Option<char> {
         self.program.next()
     }
-    
+
     fn peek(&mut self) -> Option<char> {
         self.program.clone().next()
     }
-    
+
     fn peek_next(&mut self) -> Option<char> {
         self.program.clone().nth(1)
     }
 
     pub fn advance_token(&mut self) -> Option<Token<'i>> {
         self.whitespace();
-        
+
         let token = match self.advance()? {
             '"' => self.string(),
             digit @ '0'..='9' => self.number(digit),
@@ -174,7 +201,7 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
 
             '?' => Tk::Question,
             ':' => Tk::Colon,
-            
+
             '+' => Tk::Plus,
             '-' => Tk::Minus,
             '*' => Tk::Star,
@@ -183,13 +210,13 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
             ')' => Tk::CloseParen,
             '[' => Tk::OpenBracket,
             ']' => Tk::CloseBracket,
-            
-            c => panic!("Unexpected symbol: {}", c),
+
+            c => Tk::UnexpectedChar(c),
         };
-        
+
         Some(Token::new(token, self.line))
     }
-    
+
     fn whitespace(&mut self) {
         while self.peek().map_or(false, char::is_whitespace) {
             // Advance to skip whitespace
@@ -198,16 +225,16 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
             }
         }
     }
-    
-    fn number(&mut self, first_digit: char) -> TokenKind<'i> {     
+
+    fn number(&mut self, first_digit: char) -> TokenKind<'i> {
         let mut digits = first_digit.to_string();
-        
+
         self.int_digits(&mut digits);
         match self.peek() {
             Some('.') if matches!(self.peek_next(), Some('0'..='9')) => {
                 self.advance();
                 digits.push('.');
-            },
+            }
 
             _ => {
                 let num: i64 = digits.parse().expect("Lexer should have validated the int");
@@ -215,8 +242,10 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
             }
         }
         self.int_digits(&mut digits);
-        
-        let num: f64 = digits.parse().expect("Lexer should have validated the float");
+
+        let num: f64 = digits
+            .parse()
+            .expect("Lexer should have validated the float");
         Tk::Literal(LiteralKind::Float(num))
     }
 
@@ -226,24 +255,24 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
                 Some(c @ '0'..='9') => {
                     self.advance();
                     digits.push(c);
-                },
+                }
 
                 _ => break,
             }
         }
     }
-    
+
     fn string(&mut self) -> TokenKind<'i> {
         let mut text = String::new();
-        
-        loop {
+
+        let terminated = loop {
             match self.advance() {
-                Some('"') => break,
+                Some('"') => break true,
                 // if let guards aren't stabilized :(
-                   Some('\\') if self.peek().is_some() => {
+                Some('\\') if self.peek().is_some() => {
                     let c = self.advance().expect("checked is_some() on peek()");
                     text.push(c);
-                },
+                }
                 // increment the line counter in multiline strings
                 Some(c @ '\n') => {
                     self.line += 1;
@@ -251,12 +280,15 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
                 }
                 Some(c) => text.push(c),
                 // EOF or escaped EOF
-                _ => panic!("Unterminated string"),
+                _ => break false,
             }
-        }
-        
+        };
+
         let interned = self.interner.intern(text);
-        Tk::Literal(LiteralKind::String(interned))
+        Tk::Literal(LiteralKind::String {
+            string: interned,
+            terminated,
+        })
     }
 
     fn ident_or_keyword(&mut self, first_char: char) -> TokenKind<'i> {
@@ -269,43 +301,48 @@ impl<'prgm, 'i, I: Interner<String>> Lexer<'prgm, 'i, I> {
                     self.advance();
                     ident.push(c);
                     match c {
-                        'a' if self.match_keyword_suffix("lse", &mut ident)
-                            => return Tk::Keyword(Keyword::False),
-                        'n' if self.match_keyword_suffix("", &mut ident)
-                            => return Tk::Keyword(Keyword::Fn),
-                        'o' if self.match_keyword_suffix("r", &mut ident)
-                            => return Tk::Keyword(Keyword::For),
-                        
+                        'a' if self.match_keyword_suffix("lse", &mut ident) => {
+                            return Tk::Keyword(Keyword::False)
+                        }
+                        'n' if self.match_keyword_suffix("", &mut ident) => {
+                            return Tk::Keyword(Keyword::Fn)
+                        }
+                        'o' if self.match_keyword_suffix("r", &mut ident) => {
+                            return Tk::Keyword(Keyword::For)
+                        }
+
                         _ => (),
                     };
                 }
             }
-            
-            'e' if self.match_keyword_suffix("lse", &mut ident)
-                => return Tk::Keyword(Keyword::Else),
-            'i' if self.match_keyword_suffix("f", &mut ident)
-                => return Tk::Keyword(Keyword::If),
-            'l' if self.match_keyword_suffix("et", &mut ident)
-                => return Tk::Keyword(Keyword::Let),
-            'r' if self.match_keyword_suffix("eturn", &mut ident)
-                => return Tk::Keyword(Keyword::Return),
-            't' if self.match_keyword_suffix("rue", &mut ident)
-                => return Tk::Keyword(Keyword::True),
-            'w' if self.match_keyword_suffix("hile", &mut ident)
-                => return Tk::Keyword(Keyword::While),
-            
+
+            'e' if self.match_keyword_suffix("lse", &mut ident) => {
+                return Tk::Keyword(Keyword::Else)
+            }
+            'i' if self.match_keyword_suffix("f", &mut ident) => return Tk::Keyword(Keyword::If),
+            'l' if self.match_keyword_suffix("et", &mut ident) => return Tk::Keyword(Keyword::Let),
+            'r' if self.match_keyword_suffix("eturn", &mut ident) => {
+                return Tk::Keyword(Keyword::Return)
+            }
+            't' if self.match_keyword_suffix("rue", &mut ident) => {
+                return Tk::Keyword(Keyword::True)
+            }
+            'w' if self.match_keyword_suffix("hile", &mut ident) => {
+                return Tk::Keyword(Keyword::While)
+            }
+
             _ => (),
         };
 
         while let Some(c) = self.peek() {
             if !is_alphanumeric(c) {
-                break
+                break;
             };
-            
+
             self.advance();
             ident.push(c);
         }
-        
+
         Tk::Ident(ident)
     }
 
@@ -336,7 +373,7 @@ impl<'prgm, 'i, I: Interner<String>> Clone for Lexer<'prgm, 'i, I> {
         Self {
             program: self.program.clone(),
             interner: self.interner,
-            line: self.line
+            line: self.line,
         }
     }
 }

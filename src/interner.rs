@@ -1,4 +1,8 @@
-use std::{cell::{Cell, UnsafeCell}, fmt::Display, hash::Hash};
+use std::{
+    cell::{Cell, UnsafeCell},
+    fmt::Display,
+    hash::Hash,
+};
 
 use hashbrown::HashSet;
 use stable_deref_trait::StableDeref;
@@ -10,13 +14,13 @@ pub struct HashSetInterner<T> {
     set: UnsafeCell<HashSet<T>>,
 
     /// If T's impl of Eq or Hash contains a call to this Interner,
-    /// it could lead to infinite recursion. This lets us panic instead. 
+    /// it could lead to infinite recursion. This lets us panic instead.
     in_use: Cell<bool>,
 }
 
 struct SetGuard<'a, T> {
-    in_use: &'a Cell<bool>, 
-    set: *mut HashSet<T>
+    in_use: &'a Cell<bool>,
+    set: *mut HashSet<T>,
 }
 
 impl<T> HashSetInterner<T> {
@@ -35,7 +39,7 @@ impl<T> HashSetInterner<T> {
 
         SetGuard {
             in_use: &self.in_use,
-            set: self.set.get()
+            set: self.set.get(),
         }
     }
 }
@@ -43,9 +47,7 @@ impl<T> HashSetInterner<T> {
 impl<T: Hash + Eq + StableDeref + Display> Interner<T> for HashSetInterner<T> {
     fn intern(&self, value: T) -> &T {
         let g = self.lock();
-        unsafe {
-            (*g.set).get_or_insert(value)
-        }
+        unsafe { (*g.set).get_or_insert(value) }
     }
 }
 

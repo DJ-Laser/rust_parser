@@ -1,26 +1,35 @@
 use std::fmt::{Display, Formatter};
 
-use crate::{ast::astnodes::DelimiterKind, lexer::Token};
+use crate::{
+    ast::astnodes::DelimiterKind,
+    lexer::{Token, TokenKind},
+};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ErrorKind {
+#[derive(Debug, PartialEq, Clone)]
+pub enum ErrorKind<'i> {
     UnterminatedStringLiteral,
     ExtraClosingDelimiter,
-    MismatchedDelimiter { expected_delimiter: DelimiterKind },
-    UnclosedDelimiter { expected_delimiter: DelimiterKind },
+    MismatchedDelimiter {
+        expected_delimiter: DelimiterKind,
+    },
+    UnclosedDelimiter {
+        expected_delimiter: DelimiterKind,
+    },
 
     BadAccessIdentifier,
-    UnexpectedToken,
+    UnexpectedToken {
+        expected_token: Option<TokenKind<'i>>,
+    },
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ParseError<'i> {
-    error: ErrorKind,
+    error: ErrorKind<'i>,
     token: Token<'i>,
 }
 
 impl<'i> ParseError<'i> {
-    pub fn new(error: ErrorKind, token: Token<'i>) -> Self {
+    pub fn new(error: ErrorKind<'i>, token: Token<'i>) -> Self {
         Self { error, token }
     }
 
@@ -41,7 +50,14 @@ impl<'i> ParseError<'i> {
             ErrorKind::BadAccessIdentifier => {
                 format!("expected identifier, got: {}", self.token)
             }
-            ErrorKind::UnexpectedToken => {
+            ErrorKind::UnexpectedToken {
+                expected_token: Some(ref token),
+            } => {
+                format!("expected token `{}`, got: `{}`", token, self.token)
+            }
+            ErrorKind::UnexpectedToken {
+                expected_token: None,
+            } => {
                 format!("expected expression, got: `{}`", self.token)
             }
         }

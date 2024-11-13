@@ -87,7 +87,25 @@ impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
         self.tokens.clone().next()
     }
 
-    pub fn expression(&mut self, left_power: OpBindingPower) -> ExprFlow<'i> {
+    pub fn parse(mut self) -> Result<ExprNode<'i>, Vec<ParseError<'i>>> {
+        let expr = self.expression(OpBindingPower::All);
+        if !self.delimiters.is_empty() {
+            self.errors.push(ParseError::new(
+                ErrorKind::UnclosedDelimiter {
+                    expected_delimiter: self.delimiters.pop().unwrap(),
+                },
+                Token::eof(),
+            ));
+        }
+
+        if self.errors.is_empty() {
+            Ok(expr.converge())
+        } else {
+            Err(self.errors)
+        }
+    }
+
+    fn expression(&mut self, left_power: OpBindingPower) -> ExprFlow<'i> {
         let token = self.advance_or_eof();
 
         let mut lhs = match token.kind {
@@ -109,26 +127,25 @@ impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
                 Tk::OpenBracket => self.index(lhs),
 
                 // Closing Delimiters, verify and return current parsed expression
-                Tk::CloseParen => {
-                    self.verify_closing_delimiter(token, DelimiterKind::Parentheses, lhs)
-                }
-                Tk::CloseBracket => {
-                    self.verify_closing_delimiter(token, DelimiterKind::Brackets, lhs)
-                }
+                Tk::CloseParen => self.verify_closing_delimiter(DelimiterKind::Parentheses, lhs),
+                Tk::CloseBracket => self.verify_closing_delimiter(DelimiterKind::Brackets, lhs),
 
                 Tk::Dot => self.access(lhs),
                 Tk::Comma if self.allow_comma => Break(lhs),
 
                 // Conditional Operator "c ? a : b"
                 Tk::Question => self.conditional(lhs),
-                Tk::Colon => self.verify_closing_delimiter(token, DelimiterKind::Conditional, lhs),
+                Tk::Colon => self.verify_closing_delimiter(DelimiterKind::Conditional, lhs),
 
                 Tk::Plus => self.bin_op(BinOpKind::Add, lhs, left_power),
                 Tk::Minus => self.bin_op(BinOpKind::Subtract, lhs, left_power),
                 Tk::Star => self.bin_op(BinOpKind::Multiply, lhs, left_power),
                 Tk::Slash => self.bin_op(BinOpKind::Divide, lhs, left_power),
 
-                _ => return self.unexpected_token(token),
+                _ => {
+                    let token = self.advance_or_eof();
+                    self.unexpected_token(token)
+                }
             }?;
         }
 
@@ -172,12 +189,19 @@ impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
                     self.advance();
                     break;
                 }
-                _ => expressions.push(self.expression(OpBindingPower::Grouping).converge()),
+                _ => {
+                    let expr = self.expression(OpBindingPower::Grouping);
+                    let should_break = matches!(expr, Break(_));
+                    expressions.push(expr.converge());
+
+                    if should_break {
+                        break;
+                    }
+                }
             };
         }
 
         self.allow_comma = prev_allow_comma;
-        self.expect_delimiter(closing_delimiter);
         expressions
     }
 
@@ -229,7 +253,6 @@ impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
         let true_expression = self.expression(OpBindingPower::Grouping);
 
         self.expect(Tk::Colon);
-        self.expect_delimiter(DelimiterKind::Conditional);
 
         // Expressions after the ':' are subject to standard bindng rules
         let false_expression = self.expression(OpBindingPower::Conditional);
@@ -285,24 +308,20 @@ impl<'i, T: Iterator<Item = Token<'i>> + Clone> AstParser<'i, T> {
     fn delimited_expression(&mut self, opening_delimeter: DelimiterKind) -> ExprFlow<'i> {
         self.delimiters.push(opening_delimeter);
         let expr = self.expression(OpBindingPower::Grouping);
-        self.expect_delimiter(opening_delimeter);
         expr
-    }
-
-    fn expect_delimiter(&mut self, expected_delimiter: DelimiterKind) {
-        let last_delimiter = self.delimiters.pop();
-        debug_assert!(last_delimiter.map_or(false, |d| d == expected_delimiter));
     }
 
     fn verify_closing_delimiter(
         &mut self,
-        token: Token<'i>,
         closing_delimiter: DelimiterKind,
         lhs: ExprNode<'i>,
     ) -> ExprFlow<'i> {
+        let token = self.advance_or_eof();
         match self.delimiters.last() {
-            // Happy Path
-            Some(expected_delimiter) if closing_delimiter == *expected_delimiter => (),
+            Some(expected_delimiter) if closing_delimiter == *expected_delimiter => {
+                // Pop stack to expect the next delimiter
+                self.delimiters.pop();
+            }
 
             Some(expected_delimiter) => self.report_error(
                 token,

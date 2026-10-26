@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::lexer::TokenKind as Tk;
 
-use super::parser::OpBindingPower;
+use super::expressions::OpBindingPower;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BinOpKind {

@@ -1,5 +1,6 @@
 pub mod astnodes;
 pub mod controlflow;
+pub mod expressions;
 pub mod parser;
 
 use parser::AstParser;
